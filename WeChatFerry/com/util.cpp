@@ -6,6 +6,8 @@
 #include <optional>
 #include <strsafe.h>
 #include <wchar.h>
+#include <fstream>
+#include <string>
 
 #include <Shlwapi.h>
 #include <tlhelp32.h>
@@ -84,7 +86,7 @@ std::optional<std::string> get_wechat_path_from_config()
     }
 
     try {
-        std::ifstream file(config_path);
+        std::ifstream file(config_path.string());  // 修改这里，使用string()方法
         std::string line;
         while (std::getline(file, line)) {
             // 简单解析，查找 wechat_path: 开头的行
