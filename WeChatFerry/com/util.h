@@ -102,10 +102,4 @@ std::unique_ptr<WxString> new_wx_string(const wchar_t *wstr);
 std::unique_ptr<WxString> new_wx_string(const std::string &str);
 std::unique_ptr<WxString> new_wx_string(const std::wstring &wstr);
 
-std::optional<std::string> get_wechat_path_from_config();
-std::string get_wechat_version_from_path(const std::string& wechat_exe_path);
-
 } // namespace util
-
-
-

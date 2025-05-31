@@ -21,14 +21,7 @@ int Init(void *args)
         return -1;
     }
 
-    std::string version;
-    // 尝试从配置文件读取微信路径
-    if (auto config_path = util::get_wechat_path_from_config()) {
-        version = util::get_wechat_version_from_path(*config_path);
-    } else {
-        // 回退到原来的方法
-        version = util::get_wechat_version();
-    }
+    std::string version = util::get_wechat_version();
     std::string msg     = fmt::format("WCF 支持版本: {}，当前版本: {}", SUPPORT_VERSION, version);
     if (version != SUPPORT_VERSION) {
         LOG_ERROR(msg);
