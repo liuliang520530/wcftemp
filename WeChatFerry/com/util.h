@@ -107,3 +107,5 @@ std::string get_wechat_version_from_path(const std::string& wechat_exe_path);
 
 } // namespace util
 
+
+

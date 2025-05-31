@@ -78,63 +78,79 @@ static DWORD get_wechat_pid()
 
 std::optional<std::string> get_wechat_path_from_config()
 {
-    // 配置文件路径，可以放在程序目录下
-    fs::path config_path = fs::current_path() / "wcf_config.yml";
-    if (!fs::exists(config_path)) {
-        LOG_DEBUG("配置文件不存在: {}", config_path.string());
+    // 配置文件路径，放在程序目录下
+    char config_path[MAX_PATH] = {0};
+    GetModuleFileNameA(NULL, config_path, MAX_PATH);
+    PathRemoveFileSpecA(config_path);
+    PathAppendA(config_path, "wcf_config.ini");
+
+    // 检查文件是否存在
+    if (!PathFileExistsA(config_path)) {
+        LOG_DEBUG("配置文件不存在: %s", config_path);
         return std::nullopt;
     }
 
-    try {
-        std::ifstream file(config_path.string());  // 修改这里，使用string()方法
-        std::string line;
-        while (std::getline(file, line)) {
-            // 简单解析，查找 wechat_path: 开头的行
-            if (line.find("wechat_path:") == 0) {
-                std::string path = line.substr(12); // 跳过 "wechat_path: "
-                // 去除前后空格
-                path.erase(0, path.find_first_not_of(" \t"));
-                path.erase(path.find_last_not_of(" \t") + 1);
-                // 去除引号（如果有）
-                if (path.front() == '"' && path.back() == '"') {
-                    path = path.substr(1, path.length() - 2);
-                }
-                LOG_INFO("从配置文件读取微信路径: {}", path);
-                return path;
-            }
-        }
-    } catch (const std::exception& e) {
-        LOG_ERROR("读取配置文件失败: {}", e.what());
-    }
+    // 读取微信路径
+    char wechat_path[MAX_PATH] = {0};
+    GetPrivateProfileStringA("WeChatFerry", "WeChatPath", "", wechat_path, MAX_PATH, config_path);
     
-    return std::nullopt;
+    if (wechat_path[0] == '\0') {
+        LOG_DEBUG("配置文件中未找到微信路径");
+        return std::nullopt;
+    }
+
+    LOG_INFO("从配置文件读取微信路径: %s", wechat_path);
+    return std::string(wechat_path);
 }
 
 std::string get_wechat_version_from_path(const std::string& wechat_exe_path)
 {
-    fs::path exe_path(wechat_exe_path);
-    fs::path dll_path = exe_path.parent_path();
+    // 获取微信目录
+    char wechat_dir[MAX_PATH] = {0};
+    strcpy_s(wechat_dir, wechat_exe_path.c_str());
+    PathRemoveFileSpecA(wechat_dir);
     
     // 尝试直接查找 WeChatWin.dll
-    fs::path wechat_dll_path = dll_path / WECHATWINDLL;
-    if (fs::exists(wechat_dll_path)) {
-        auto version = get_file_version(wechat_dll_path.string());
+    char dll_path[MAX_PATH] = {0};
+    strcpy_s(dll_path, wechat_dir);
+    PathAppendA(dll_path, WECHATWINDLL);
+    
+    if (PathFileExistsA(dll_path)) {
+        auto version = get_file_version(dll_path);
         if (version) return *version;
     }
     
     // 尝试在版本目录中查找
-    for (const auto &entry : fs::directory_iterator(dll_path)) {
-        if (entry.is_directory()) {
-            fs::path possible_dll = entry.path() / WECHATWINDLL;
-            if (fs::exists(possible_dll)) {
-                auto version = get_file_version(possible_dll.string());
-                if (version) return *version;
-                break;
+    WIN32_FIND_DATAA find_data;
+    char search_path[MAX_PATH] = {0};
+    strcpy_s(search_path, wechat_dir);
+    PathAppendA(search_path, "*");
+    
+    HANDLE find_handle = FindFirstFileA(search_path, &find_data);
+    if (find_handle != INVALID_HANDLE_VALUE) {
+        do {
+            if ((find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+                strcmp(find_data.cFileName, ".") != 0 &&
+                strcmp(find_data.cFileName, "..") != 0) {
+                
+                char version_dll_path[MAX_PATH] = {0};
+                strcpy_s(version_dll_path, wechat_dir);
+                PathAppendA(version_dll_path, find_data.cFileName);
+                PathAppendA(version_dll_path, WECHATWINDLL);
+                
+                if (PathFileExistsA(version_dll_path)) {
+                    auto version = get_file_version(version_dll_path);
+                    FindClose(find_handle);
+                    if (version) return *version;
+                    break;
+                }
             }
-        }
+        } while (FindNextFileA(find_handle, &find_data));
+        
+        FindClose(find_handle);
     }
     
-    LOG_ERROR("无法从指定路径获取微信版本: {}", wechat_exe_path);
+    LOG_ERROR("无法从指定路径获取微信版本: %s", wechat_exe_path.c_str());
     return "";
 }
 
@@ -194,35 +210,36 @@ static std::optional<std::string> get_wechat_win_dll_path()
     return found_path;
 }
 
-static std::optional<std::string> get_file_version(const std::string &path)
+std::optional<std::string> get_file_version(const std::string& file_path)
 {
-    if (!PathFileExistsA(path.c_str())) {
-        LOG_ERROR("文件不存在: {}", path);
-        return std::nullopt;
-    }
-
-    DWORD dummy = 0;
-    DWORD size  = GetFileVersionInfoSizeA(path.c_str(), &dummy);
+    DWORD handle = 0;
+    DWORD size = GetFileVersionInfoSizeA(file_path.c_str(), &handle);
     if (size == 0) {
-        LOG_ERROR("无法获取文件版本信息大小: {}", path);
+        LOG_ERROR("获取文件版本信息大小失败: %s", file_path.c_str());
         return std::nullopt;
     }
 
-    std::vector<BYTE> buffer(size);
-    if (!GetFileVersionInfoA(path.c_str(), 0, size, buffer.data())) {
-        LOG_ERROR("无法获取文件版本信息: {}", path);
+    std::vector<BYTE> data(size);
+    if (!GetFileVersionInfoA(file_path.c_str(), handle, size, data.data())) {
+        LOG_ERROR("获取文件版本信息失败: %s", file_path.c_str());
         return std::nullopt;
     }
 
-    VS_FIXEDFILEINFO *ver_info = nullptr;
-    UINT ver_size              = 0;
-    if (!VerQueryValueA(buffer.data(), "\\", reinterpret_cast<LPVOID *>(&ver_info), &ver_size)) {
-        LOG_ERROR("无法获取文件版本信息: {}", path);
+    VS_FIXEDFILEINFO* file_info = nullptr;
+    UINT len = 0;
+    if (!VerQueryValueA(data.data(), "\\", (LPVOID*)&file_info, &len)) {
+        LOG_ERROR("查询文件版本信息失败: %s", file_path.c_str());
         return std::nullopt;
     }
 
-    return fmt::format("{}.{}.{}.{}", HIWORD(ver_info->dwFileVersionMS), LOWORD(ver_info->dwFileVersionMS),
-                       HIWORD(ver_info->dwFileVersionLS), LOWORD(ver_info->dwFileVersionLS));
+    char version[64] = {0};
+    sprintf_s(version, "%d.%d.%d.%d",
+        HIWORD(file_info->dwFileVersionMS),
+        LOWORD(file_info->dwFileVersionMS),
+        HIWORD(file_info->dwFileVersionLS),
+        LOWORD(file_info->dwFileVersionLS));
+
+    return std::string(version);
 }
 
 std::string get_wechat_version()
