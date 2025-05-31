@@ -74,6 +74,68 @@ static DWORD get_wechat_pid()
     return pid;
 }
 
+std::optional<std::string> get_wechat_path_from_config()
+{
+    // 配置文件路径，可以放在程序目录下
+    fs::path config_path = fs::current_path() / "wcf_config.yml";
+    if (!fs::exists(config_path)) {
+        LOG_DEBUG("配置文件不存在: {}", config_path.string());
+        return std::nullopt;
+    }
+
+    try {
+        std::ifstream file(config_path);
+        std::string line;
+        while (std::getline(file, line)) {
+            // 简单解析，查找 wechat_path: 开头的行
+            if (line.find("wechat_path:") == 0) {
+                std::string path = line.substr(12); // 跳过 "wechat_path: "
+                // 去除前后空格
+                path.erase(0, path.find_first_not_of(" \t"));
+                path.erase(path.find_last_not_of(" \t") + 1);
+                // 去除引号（如果有）
+                if (path.front() == '"' && path.back() == '"') {
+                    path = path.substr(1, path.length() - 2);
+                }
+                LOG_INFO("从配置文件读取微信路径: {}", path);
+                return path;
+            }
+        }
+    } catch (const std::exception& e) {
+        LOG_ERROR("读取配置文件失败: {}", e.what());
+    }
+    
+    return std::nullopt;
+}
+
+std::string get_wechat_version_from_path(const std::string& wechat_exe_path)
+{
+    fs::path exe_path(wechat_exe_path);
+    fs::path dll_path = exe_path.parent_path();
+    
+    // 尝试直接查找 WeChatWin.dll
+    fs::path wechat_dll_path = dll_path / WECHATWINDLL;
+    if (fs::exists(wechat_dll_path)) {
+        auto version = get_file_version(wechat_dll_path.string());
+        if (version) return *version;
+    }
+    
+    // 尝试在版本目录中查找
+    for (const auto &entry : fs::directory_iterator(dll_path)) {
+        if (entry.is_directory()) {
+            fs::path possible_dll = entry.path() / WECHATWINDLL;
+            if (fs::exists(possible_dll)) {
+                auto version = get_file_version(possible_dll.string());
+                if (version) return *version;
+                break;
+            }
+        }
+    }
+    
+    LOG_ERROR("无法从指定路径获取微信版本: {}", wechat_exe_path);
+    return "";
+}
+
 static std::optional<std::string> get_wechat_path()
 {
     HKEY hKey;
