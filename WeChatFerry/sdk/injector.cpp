@@ -181,3 +181,27 @@ bool call_dll_func_ex(HANDLE process, const string &dll_path, HMODULE dll_base, 
     CloseHandle(hThread);
     return true;
 }
+
+bool is_process_x64(DWORD pid)
+{
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+    if (!hProcess) {
+        return false;
+    }
+
+    BOOL isWow64 = FALSE;
+    if (!IsWow64Process(hProcess, &isWow64)) {
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    CloseHandle(hProcess);
+
+    // 如果是 WOW64 进程，说明是 32 位进程运行在 64 位系统上
+    // 如果不是 WOW64 进程，在 64 位系统上就是 64 位进程
+    #ifdef _WIN64
+        return !isWow64;  // 64 位系统：非 WOW64 = 64 位进程
+    #else
+        return false;     // 32 位系统：都是 32 位进程
+    #endif
+}

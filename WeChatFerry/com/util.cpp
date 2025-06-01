@@ -2,12 +2,12 @@
 
 #include <codecvt>
 #include <filesystem>
-#include <fstream>
 #include <locale>
 #include <optional>
 #include <strsafe.h>
 #include <wchar.h>
 
+#include <Psapi.h>
 #include <Shlwapi.h>
 #include <tlhelp32.h>
 
@@ -15,6 +15,7 @@
 
 #pragma comment(lib, "shlwapi")
 #pragma comment(lib, "Version.lib")
+#pragma comment(lib, "Psapi.lib")
 
 namespace fs = std::filesystem;
 
@@ -75,8 +76,7 @@ static DWORD get_wechat_pid()
     return pid;
 }
 
-// 从注册表获取微信路径
-static std::optional<std::string> get_wechat_path_from_registry()
+static std::optional<std::string> get_wechat_path()
 {
     HKEY hKey;
     if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\Tencent\\WeChat", 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
@@ -98,161 +98,51 @@ static std::optional<std::string> get_wechat_path_from_registry()
     return std::string(path);
 }
 
-// 从配置文件获取微信路径
-static std::optional<std::string> get_wechat_path_from_config()
+// 重载函数：通过 PID 获取可执行文件路径
+static std::optional<std::string> get_wechat_path(DWORD pid)
 {
-    LOG_INFO("=== 开始从配置文件获取微信路径 ===");
+  HANDLE hProcess = NULL;
 
-    // 获取 sdk.dll 或 spy.dll 所在目录（它们在同一目录）
-    HMODULE hModule = nullptr;
-    std::string dll_name;
-
-    // 优先尝试 sdk.dll
-    hModule = GetModuleHandleA("sdk.dll");
-    if (hModule) {
-        dll_name = "sdk.dll";
-    } else {
-        hModule = GetModuleHandleA("libsdk.dll");  // MinGW 版本
-        if (hModule) {
-            dll_name = "libsdk.dll";
-        }
-    }
-
-    // 如果找不到 sdk.dll，尝试 spy.dll
-    if (!hModule) {
-        hModule = GetModuleHandleA("spy.dll");
-        if (hModule) {
-            dll_name = "spy.dll";
-        } else {
-            hModule = GetModuleHandleA("libspy.dll");  // MinGW 版本
-            if (hModule) {
-                dll_name = "libspy.dll";
-            }
-        }
-    }
-
-    if (!hModule) {
-        LOG_ERROR("无法找到 sdk.dll 或 spy.dll，请确保 WeChatFerry 已正确加载");
-        return std::nullopt;
-    }
-
-    char dll_path[MAX_PATH] = { 0 };
-    GetModuleFileNameA(hModule, dll_path, MAX_PATH);
-    fs::path dll_dir = fs::path(dll_path).parent_path();
-    fs::path config_file = dll_dir / "config.ini";
-
-    LOG_INFO("找到DLL: {} 路径: {}", dll_name, dll_path);
-    LOG_INFO("配置文件路径: {}", config_file.string());
-
-    if (!fs::exists(config_file)) {
-        LOG_INFO("配置文件不存在: {}，将尝试从注册表获取微信路径", config_file.string());
-        return std::nullopt;
-    }
-
-    std::ifstream file(config_file);
-    if (!file.is_open()) {
-        LOG_ERROR("无法打开配置文件: {}", config_file.string());
-        return std::nullopt;
-    }
-
-    std::string line;
-    bool in_wechat_section = false;
-    int line_number = 0;
-
-    LOG_DEBUG("开始解析配置文件内容");
-
-    while (std::getline(file, line)) {
-        line_number++;
-        std::string original_line = line; // 保存原始行用于调试
-
-        // 去除首尾空白字符
-        line.erase(0, line.find_first_not_of(" \t\r\n"));
-        line.erase(line.find_last_not_of(" \t\r\n") + 1);
-
-        LOG_DEBUG("第{}行: [{}] -> [{}]", line_number, original_line, line);
-
-        // 跳过空行和注释
-        if (line.empty() || line[0] == ';' || line[0] == '#') {
-            LOG_DEBUG("跳过空行或注释行: {}", line_number);
-            continue;
-        }
-
-        // 检查是否是 [WeChat] 节
-        if (line == "[WeChat]") {
-            LOG_INFO("找到 [WeChat] 配置节，第{}行", line_number);
-            in_wechat_section = true;
-            continue;
-        }
-
-        // 检查是否是其他节
-        if (line[0] == '[' && line.back() == ']') {
-            LOG_DEBUG("找到其他配置节: {}，第{}行", line, line_number);
-            in_wechat_section = false;
-            continue;
-        }
-
-        // 如果在 WeChat 节中，查找 InstallPath
-        if (in_wechat_section) {
-            LOG_DEBUG("在 WeChat 节中处理第{}行: {}", line_number, line);
-            size_t pos = line.find('=');
-            if (pos != std::string::npos) {
-                std::string key = line.substr(0, pos);
-                std::string value = line.substr(pos + 1);
-
-                // 去除键值的空白字符
-                key.erase(0, key.find_first_not_of(" \t"));
-                key.erase(key.find_last_not_of(" \t") + 1);
-                value.erase(0, value.find_first_not_of(" \t"));
-                value.erase(value.find_last_not_of(" \t") + 1);
-
-                LOG_DEBUG("解析到键值对: [{}] = [{}]", key, value);
-
-                if (key == "InstallPath") {
-                    LOG_INFO("找到 InstallPath 配置: {}", value);
-                    if (!value.empty()) {
-                        if (fs::exists(value)) {
-                            LOG_INFO("从配置文件读取到微信路径: {}", value);
-                            return value;
-                        } else {
-                            LOG_ERROR("配置文件中的微信路径不存在: {}", value);
-                            return std::nullopt;
-                        }
-                    } else {
-                        LOG_WARN("InstallPath 配置项为空");
-                    }
-                }
-            } else {
-                LOG_DEBUG("第{}行不包含等号，跳过: {}", line_number, line);
-            }
-        } else {
-            LOG_DEBUG("不在 WeChat 节中，跳过第{}行: {}", line_number, line);
-        }
-    }
-
-    LOG_DEBUG("配置文件中未找到 WeChat.InstallPath 配置");
+  // 打开进程
+  hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+  if (hProcess == NULL)
+  {
+    LOG_ERROR("无法打开进程，PID: {}, 错误码: {}", pid, GetLastError());
     return std::nullopt;
+  }
+
+  // 获取可执行文件路径
+  wchar_t path[MAX_PATH] = { 0 };
+  DWORD cbData = MAX_PATH;
+  if (GetModuleFileNameExW(hProcess, NULL, path, cbData) == 0)
+  {
+    DWORD error = GetLastError();
+    LOG_ERROR("无法获取进程可执行文件路径，PID: {}, 错误码: {}", pid, error);
+    CloseHandle(hProcess);
+    return std::nullopt;
+  }
+
+  // 检查路径是否有效
+  if (path[0] == L'\0')
+  {
+    LOG_ERROR("获取到的进程路径为空，PID: {}", pid);
+    CloseHandle(hProcess);
+    return std::nullopt;
+  }
+
+  CloseHandle(hProcess);
+
+  // 将 wchar_t 路径转换为 std::string 并返回
+  return w2s(std::wstring(path));
 }
 
-// 获取微信路径（优先从配置文件，回退到注册表）
-static std::optional<std::string> get_wechat_path()
-{
-    LOG_INFO("开始获取微信路径，优先从配置文件获取");
-
-    // 首先尝试从配置文件获取
-    auto config_path = get_wechat_path_from_config();
-    if (config_path) {
-        LOG_INFO("成功从配置文件获取微信路径: {}", *config_path);
-        return config_path;
-    }
-
-    // 如果配置文件中没有，则从注册表获取
-    LOG_INFO("配置文件中未找到微信路径，尝试从注册表获取");
-    return get_wechat_path_from_registry();
-}
 
 static std::optional<std::string> get_wechat_win_dll_path()
 {
-    auto wechat_path = get_wechat_path();
+
+    DWORD pid = GetCurrentProcessId();
+    LOG_INFO("当前进程 PID: {}", pid);
+    auto wechat_path = get_wechat_path(pid);
     if (!wechat_path) {
         return std::nullopt;
     }

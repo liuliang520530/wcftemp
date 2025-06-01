@@ -99,6 +99,124 @@ static std::string get_dll_path(bool debug)
     return path.string();
 }
 extern "C" {
+
+__declspec(dllexport)  int WxInitSDKWithPid(DWORD pid, bool debug, int port)
+{
+  if (!show_disclaimer())
+  {
+    exit(-1);
+  }
+
+  if (pid == 0)
+  {
+    MessageBox(NULL, L"无效的进程ID", L"WxInitSDK", 0);
+    return -1;
+  }
+
+  spyDllPath = get_dll_path(debug);
+  if (spyDllPath.empty())
+  {
+    return ERROR_FILE_NOT_FOUND;
+  }
+
+  if (!is_process_x64(pid))
+  {
+    MessageBox(NULL, L"只支持 64 位微信", L"WxInitSDKWithPid", 0);
+    return -1;
+  }
+
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  wcProcess = inject_dll(pid, spyDllPath, &spyBase);
+  if (wcProcess == NULL)
+  {
+    MessageBox(NULL, L"注入失败", L"WxInitSDK", 0);
+    return -1;
+  }
+
+  util::PortPath pp = {0};
+  pp.port = port;
+  snprintf(pp.path, MAX_PATH, "%s", std::filesystem::current_path().string().c_str());
+
+  injected = true;
+
+  status       = -3; // TODO: 统一错误码
+  
+    bool success = call_dll_func_ex(wcProcess, spyDllPath, spyBase, "InitSpy", (LPVOID)&pp, sizeof(util::PortPath),
+                                    (DWORD *)&status);
+    if (!success || status != 0) {
+        WxDestroySDK();
+    }
+
+    return status;
+}
+
+__declspec(dllexport)  int WxInitSDKWithPath(const wchar_t *wxPath, bool debug, int port)
+{
+  if (!show_disclaimer())
+  {
+    exit(-1);
+  }
+
+  if (wxPath == nullptr || wcslen(wxPath) == 0)
+  {
+    MessageBox(NULL, L"无效的微信路径", L"WxInitSDK", 0);
+    return -1;
+  }
+
+  if (!std::filesystem::exists(wxPath))
+  {
+    MessageBox(NULL, L"微信可执行文件不存在", L"WxInitSDK", 0);
+    return -1;
+  }
+
+  spyDllPath = get_dll_path(debug);
+  if (spyDllPath.empty())
+  {
+    return ERROR_FILE_NOT_FOUND;
+  }
+
+  STARTUPINFO si = {sizeof(si)};
+  PROCESS_INFORMATION pi;
+  if (!CreateProcess(wxPath, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+  {
+    MessageBox(NULL, L"启动微信失败", L"WxInitSDK", 0);
+    return GetLastError();
+  }
+  CloseHandle(pi.hThread);
+
+  if (!is_process_x64(pi.dwProcessId))
+  {
+    MessageBox(NULL, L"只支持 64 位微信", L"WxInitSDK", 0);
+    TerminateProcess(pi.hProcess, 0);
+    CloseHandle(pi.hProcess);
+    return -1;
+  }
+
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  wcProcess = inject_dll(pi.dwProcessId, spyDllPath, &spyBase);
+  if (wcProcess == NULL)
+  {
+    MessageBox(NULL, L"注入失败", L"WxInitSDK", 0);
+    TerminateProcess(pi.hProcess, 0);
+    CloseHandle(pi.hProcess);
+    return -1;
+  }
+
+  util::PortPath pp = {0};
+  pp.port = port;
+  snprintf(pp.path, MAX_PATH, "%s", std::filesystem::current_path().string().c_str());
+
+  if (!call_dll_func_ex(wcProcess, spyDllPath, spyBase, "InitSpy", (LPVOID)&pp, sizeof(util::PortPath), NULL))
+  {
+    MessageBox(NULL, L"初始化失败", L"WxInitSDK", 0);
+    return -1;
+  }
+
+  injected = true;
+  return 0;
+}
+
+
 __declspec(dllexport) int WxInitSDK(bool debug, int port)
 {
     if (!show_disclaimer()) {
@@ -132,6 +250,7 @@ __declspec(dllexport) int WxInitSDK(bool debug, int port)
     snprintf(pp.path, MAX_PATH, "%s", fs::current_path().string().c_str());
 
     status       = -3; // TODO: 统一错误码
+
     bool success = call_dll_func_ex(wcProcess, spyDllPath, spyBase, "InitSpy", (LPVOID)&pp, sizeof(util::PortPath),
                                     (DWORD *)&status);
     if (!success || status != 0) {
