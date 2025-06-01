@@ -101,15 +101,21 @@ static std::optional<std::string> get_wechat_path_from_registry()
 // 从配置文件获取微信路径
 static std::optional<std::string> get_wechat_path_from_config()
 {
+    LOG_INFO("=== 开始从配置文件获取微信路径 ===");
+
     // 获取当前模块所在目录
     char module_path[MAX_PATH] = { 0 };
     GetModuleFileNameA(NULL, module_path, MAX_PATH);
 
+    LOG_INFO("当前模块路径: {}", module_path);
+
     fs::path config_dir = fs::path(module_path).parent_path();
     fs::path config_file = config_dir / "config.ini";
 
+    LOG_INFO("查找配置文件: {}", config_file.string());
+
     if (!fs::exists(config_file)) {
-        LOG_DEBUG("配置文件不存在: {}", config_file.string());
+        LOG_INFO("配置文件不存在: {}，将尝试从注册表获取微信路径", config_file.string());
         return std::nullopt;
     }
 
@@ -200,9 +206,12 @@ static std::optional<std::string> get_wechat_path_from_config()
 // 获取微信路径（优先从配置文件，回退到注册表）
 static std::optional<std::string> get_wechat_path()
 {
+    LOG_INFO("开始获取微信路径，优先从配置文件获取");
+
     // 首先尝试从配置文件获取
     auto config_path = get_wechat_path_from_config();
     if (config_path) {
+        LOG_INFO("成功从配置文件获取微信路径: {}", *config_path);
         return config_path;
     }
 
