@@ -103,23 +103,45 @@ static std::optional<std::string> get_wechat_path_from_config()
 {
     LOG_INFO("=== 开始从配置文件获取微信路径 ===");
 
-    // 获取 sdk.dll 所在目录
-    HMODULE hSdkModule = GetModuleHandleA("sdk.dll");
-    if (!hSdkModule) {
-        hSdkModule = GetModuleHandleA("libsdk.dll");  // 尝试 MinGW 版本
+    // 获取 sdk.dll 或 spy.dll 所在目录（它们在同一目录）
+    HMODULE hModule = nullptr;
+    std::string dll_name;
+
+    // 优先尝试 sdk.dll
+    hModule = GetModuleHandleA("sdk.dll");
+    if (hModule) {
+        dll_name = "sdk.dll";
+    } else {
+        hModule = GetModuleHandleA("libsdk.dll");  // MinGW 版本
+        if (hModule) {
+            dll_name = "libsdk.dll";
+        }
     }
 
-    if (!hSdkModule) {
-        LOG_ERROR("无法找到 sdk.dll，请确保 WeChatFerry SDK 已正确加载");
+    // 如果找不到 sdk.dll，尝试 spy.dll
+    if (!hModule) {
+        hModule = GetModuleHandleA("spy.dll");
+        if (hModule) {
+            dll_name = "spy.dll";
+        } else {
+            hModule = GetModuleHandleA("libspy.dll");  // MinGW 版本
+            if (hModule) {
+                dll_name = "libspy.dll";
+            }
+        }
+    }
+
+    if (!hModule) {
+        LOG_ERROR("无法找到 sdk.dll 或 spy.dll，请确保 WeChatFerry 已正确加载");
         return std::nullopt;
     }
 
-    char sdk_path[MAX_PATH] = { 0 };
-    GetModuleFileNameA(hSdkModule, sdk_path, MAX_PATH);
-    fs::path sdk_dir = fs::path(sdk_path).parent_path();
-    fs::path config_file = sdk_dir / "config.ini";
+    char dll_path[MAX_PATH] = { 0 };
+    GetModuleFileNameA(hModule, dll_path, MAX_PATH);
+    fs::path dll_dir = fs::path(dll_path).parent_path();
+    fs::path config_file = dll_dir / "config.ini";
 
-    LOG_INFO("SDK路径: {}", sdk_path);
+    LOG_INFO("找到DLL: {} 路径: {}", dll_name, dll_path);
     LOG_INFO("配置文件路径: {}", config_file.string());
 
     if (!fs::exists(config_file)) {
