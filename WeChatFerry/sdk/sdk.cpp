@@ -119,11 +119,11 @@ __declspec(dllexport)  int WxInitSDKWithPid(DWORD pid, bool debug, int port)
     return ERROR_FILE_NOT_FOUND;
   }
 
-  if (!is_process_x64(pid))
-  {
-    MessageBox(NULL, L"只支持 64 位微信", L"WxInitSDKWithPid", 0);
-    return -1;
-  }
+//   if (!is_process_x64(pid))
+//   {
+//     MessageBox(NULL, L"只支持 64 位微信", L"WxInitSDKWithPid", 0);
+//     return -1;
+//   }
 
   std::this_thread::sleep_for(std::chrono::seconds(2));
   wcProcess = inject_dll(pid, spyDllPath, &spyBase);
