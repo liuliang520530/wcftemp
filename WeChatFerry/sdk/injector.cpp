@@ -46,6 +46,7 @@ HANDLE inject_dll(DWORD pid, const string &dll_path, HMODULE *injected_base)
     // 1. 打开目标进程
     HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
     if (!hProcess) {
+        util::MsgBox(NULL, pid, "inject_dll", 0);
         util::MsgBox(NULL, "打开进程失败", "inject_dll", 0);
         return NULL;
     }
