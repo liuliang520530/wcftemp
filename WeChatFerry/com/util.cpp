@@ -103,46 +103,27 @@ static std::optional<std::string> get_wechat_path_from_config()
 {
     LOG_INFO("=== 开始从配置文件获取微信路径 ===");
 
-    // 尝试多个可能的配置文件位置
-    std::vector<fs::path> possible_paths;
-
-    // 1. 当前工作目录
-    possible_paths.push_back(fs::current_path() / "config.ini");
-
-    // 2. 获取当前模块所在目录
-    char module_path[MAX_PATH] = { 0 };
-    GetModuleFileNameA(NULL, module_path, MAX_PATH);
-    fs::path module_dir = fs::path(module_path).parent_path();
-    possible_paths.push_back(module_dir / "config.ini");
-
-    // 3. 尝试获取DLL所在目录（如果是在DLL中运行）
-    HMODULE hModule = GetModuleHandleA("spy.dll");
-    if (!hModule) hModule = GetModuleHandleA("libspy.dll");
-    if (hModule) {
-        char dll_path[MAX_PATH] = { 0 };
-        GetModuleFileNameA(hModule, dll_path, MAX_PATH);
-        fs::path dll_dir = fs::path(dll_path).parent_path();
-        possible_paths.push_back(dll_dir / "config.ini");
+    // 获取 sdk.dll 所在目录
+    HMODULE hSdkModule = GetModuleHandleA("sdk.dll");
+    if (!hSdkModule) {
+        hSdkModule = GetModuleHandleA("libsdk.dll");  // 尝试 MinGW 版本
     }
 
-    LOG_INFO("当前模块路径: {}", module_path);
-    LOG_INFO("当前工作目录: {}", fs::current_path().string());
-
-    fs::path config_file;
-    bool found = false;
-
-    for (const auto& path : possible_paths) {
-        LOG_INFO("检查配置文件: {}", path.string());
-        if (fs::exists(path)) {
-            config_file = path;
-            found = true;
-            LOG_INFO("找到配置文件: {}", config_file.string());
-            break;
-        }
+    if (!hSdkModule) {
+        LOG_ERROR("无法找到 sdk.dll，请确保 WeChatFerry SDK 已正确加载");
+        return std::nullopt;
     }
 
-    if (!found) {
-        LOG_INFO("在所有可能位置都未找到配置文件，将尝试从注册表获取微信路径");
+    char sdk_path[MAX_PATH] = { 0 };
+    GetModuleFileNameA(hSdkModule, sdk_path, MAX_PATH);
+    fs::path sdk_dir = fs::path(sdk_path).parent_path();
+    fs::path config_file = sdk_dir / "config.ini";
+
+    LOG_INFO("SDK路径: {}", sdk_path);
+    LOG_INFO("配置文件路径: {}", config_file.string());
+
+    if (!fs::exists(config_file)) {
+        LOG_INFO("配置文件不存在: {}，将尝试从注册表获取微信路径", config_file.string());
         return std::nullopt;
     }
 
