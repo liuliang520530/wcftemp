@@ -277,3 +277,5 @@ __declspec(dllexport) int WxDestroySDK()
 
     return 0;
 }
+
+} // extern "C"
