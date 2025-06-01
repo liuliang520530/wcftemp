@@ -4,6 +4,7 @@
 
 #include "psapi.h"
 
+#include "log.hpp"
 #include "util.h"
 
 using namespace std;
@@ -44,10 +45,16 @@ HANDLE inject_dll(DWORD pid, const string &dll_path, HMODULE *injected_base)
     SIZE_T path_size = dll_path.size() + 1;
 
     // 1. 打开目标进程
+    LOG_INFO("尝试注入 DLL 到进程 PID: {}, 路径: {}", pid, dll_path);
+
     HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
     if (!hProcess) {
-        util::MsgBox(NULL, pid, "inject_dll", 0);
-        util::MsgBox(NULL, "打开进程失败", "inject_dll", 0);
+        DWORD error = GetLastError();
+        LOG_ERROR("打开进程失败 - PID: {}, 错误码: {}", pid, error);
+
+        char errorMsg[256];
+        snprintf(errorMsg, sizeof(errorMsg), "打开进程失败 (PID: %lu, 错误码: %lu)", pid, error);
+        util::MsgBox(NULL, errorMsg, "inject_dll", 0);
         return NULL;
     }
 
@@ -84,6 +91,8 @@ HANDLE inject_dll(DWORD pid, const string &dll_path, HMODULE *injected_base)
     CloseHandle(hThread);
 
     *injected_base = get_target_module_base(hProcess, filesystem::path(dll_path).filename().string());
+
+    LOG_INFO("DLL 注入成功 - PID: {}, 基址: 0x{:X}", pid, reinterpret_cast<uintptr_t>(*injected_base));
 
     VirtualFreeEx(hProcess, pRemoteAddress, 0, MEM_RELEASE);
     return hProcess;
