@@ -139,15 +139,15 @@ __declspec(dllexport)  int WxInitSDKWithPid(DWORD pid, bool debug, int port)
 
   injected = true;
 
-  status       = -3; // TODO: 统一错误码
-  
-    bool success = call_dll_func_ex(wcProcess, spyDllPath, spyBase, "InitSpy", (LPVOID)&pp, sizeof(util::PortPath),
-                                    (DWORD *)&status);
-    if (!success || status != 0) {
-        WxDestroySDK();
-    }
+  int status = -3; // TODO: 统一错误码
 
-    return status;
+  bool success = call_dll_func_ex(wcProcess, spyDllPath, spyBase, "InitSpy", (LPVOID)&pp, sizeof(util::PortPath),
+                                  (DWORD *)&status);
+  if (!success || status != 0) {
+      WxDestroySDK();
+  }
+
+  return status;
 }
 
 __declspec(dllexport)  int WxInitSDKWithPath(const wchar_t *wxPath, bool debug, int port)
@@ -276,5 +276,4 @@ __declspec(dllexport) int WxDestroySDK()
     injected = false;
 
     return 0;
-}
 }
