@@ -121,31 +121,43 @@ static std::optional<std::string> get_wechat_path_from_config()
 
     std::string line;
     bool in_wechat_section = false;
+    int line_number = 0;
+
+    LOG_DEBUG("开始解析配置文件内容");
 
     while (std::getline(file, line)) {
+        line_number++;
+        std::string original_line = line; // 保存原始行用于调试
+
         // 去除首尾空白字符
         line.erase(0, line.find_first_not_of(" \t\r\n"));
         line.erase(line.find_last_not_of(" \t\r\n") + 1);
 
+        LOG_DEBUG("第{}行: [{}] -> [{}]", line_number, original_line, line);
+
         // 跳过空行和注释
         if (line.empty() || line[0] == ';' || line[0] == '#') {
+            LOG_DEBUG("跳过空行或注释行: {}", line_number);
             continue;
         }
 
         // 检查是否是 [WeChat] 节
         if (line == "[WeChat]") {
+            LOG_INFO("找到 [WeChat] 配置节，第{}行", line_number);
             in_wechat_section = true;
             continue;
         }
 
         // 检查是否是其他节
         if (line[0] == '[' && line.back() == ']') {
+            LOG_DEBUG("找到其他配置节: {}，第{}行", line, line_number);
             in_wechat_section = false;
             continue;
         }
 
         // 如果在 WeChat 节中，查找 InstallPath
         if (in_wechat_section) {
+            LOG_DEBUG("在 WeChat 节中处理第{}行: {}", line_number, line);
             size_t pos = line.find('=');
             if (pos != std::string::npos) {
                 std::string key = line.substr(0, pos);
@@ -157,16 +169,27 @@ static std::optional<std::string> get_wechat_path_from_config()
                 value.erase(0, value.find_first_not_of(" \t"));
                 value.erase(value.find_last_not_of(" \t") + 1);
 
+                LOG_DEBUG("解析到键值对: [{}] = [{}]", key, value);
+
                 if (key == "InstallPath") {
-                    if (fs::exists(value)) {
-                        LOG_INFO("从配置文件读取到微信路径: {}", value);
-                        return value;
+                    LOG_INFO("找到 InstallPath 配置: {}", value);
+                    if (!value.empty()) {
+                        if (fs::exists(value)) {
+                            LOG_INFO("从配置文件读取到微信路径: {}", value);
+                            return value;
+                        } else {
+                            LOG_ERROR("配置文件中的微信路径不存在: {}", value);
+                            return std::nullopt;
+                        }
                     } else {
-                        LOG_ERROR("配置文件中的微信路径不存在: {}", value);
-                        return std::nullopt;
+                        LOG_WARN("InstallPath 配置项为空");
                     }
                 }
+            } else {
+                LOG_DEBUG("第{}行不包含等号，跳过: {}", line_number, line);
             }
+        } else {
+            LOG_DEBUG("不在 WeChat 节中，跳过第{}行: {}", line_number, line);
         }
     }
 
